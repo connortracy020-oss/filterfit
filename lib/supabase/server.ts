@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { getSupabaseEnv } from '@/lib/env';
 
 export function createSupabaseServerClient() {
@@ -12,13 +12,13 @@ export function createSupabaseServerClient() {
 
   return createServerClient(url, anonKey, {
     cookies: {
-      get(name) {
+      get(name: string) {
         return cookieStore.get(name)?.value;
       },
-      set(name, value, options) {
+      set(name: string, value: string, options: CookieOptions) {
         cookieStore.set({ name, value, ...options });
       },
-      remove(name, options) {
+      remove(name: string, options: CookieOptions) {
         cookieStore.set({ name, value: '', ...options });
       }
     }
