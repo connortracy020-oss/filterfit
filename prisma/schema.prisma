@@ -1,0 +1,326 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  COORDINATOR
+  CREW
+  VIEWER
+}
+
+enum JobStatus {
+  LEAD
+  CONTRACTED
+  SITE_SURVEY
+  PERMIT_SUBMITTED
+  PERMIT_APPROVED
+  INSTALL_SCHEDULED
+  INSTALLED
+  INSPECTION_SCHEDULED
+  PASSED
+  PTO_REQUESTED
+  PTO_GRANTED
+  ON_HOLD
+  CANCELLED
+}
+
+enum PermitStatus {
+  NOT_STARTED
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  REVISION_REQUIRED
+}
+
+enum InspectionType {
+  ROUGH_ELECTRICAL
+  FINAL_ELECTRICAL
+  BUILDING
+  UTILITY_METER
+  OTHER
+}
+
+enum InspectionOutcome {
+  PASS
+  FAIL
+  PARTIAL
+  NA
+}
+
+enum InspectionStatus {
+  NOT_SCHEDULED
+  SCHEDULED
+  COMPLETED
+  RESCHEDULE_NEEDED
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+}
+
+enum ReminderChannel {
+  EMAIL
+  SMS
+  IN_APP
+}
+
+enum ReminderTriggerType {
+  PERMIT_FOLLOWUP
+  INSPECTION_UPCOMING
+  TASK_DUE
+}
+
+enum ReminderRelatedType {
+  PERMIT
+  INSPECTION
+  TASK
+}
+
+enum ReminderLogStatus {
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum ActivityEntityType {
+  JOB
+  PERMIT
+  INSPECTION
+  TASK
+  USER
+  REMINDER_POLICY
+}
+
+model Organization {
+  id               String           @id @default(cuid())
+  name             String
+  createdAt        DateTime         @default(now())
+  users            User[]
+  jobs             Job[]
+  reminderPolicies ReminderPolicy[]
+  reminderLogs     ReminderLog[]
+  inviteTokens     InviteToken[]
+
+  @@index([createdAt])
+}
+
+model User {
+  id            String      @id @default(cuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name          String
+  email         String      @unique
+  passwordHash  String
+  role          UserRole
+  createdAt     DateTime    @default(now())
+  emailVerified DateTime?
+  image         String?
+
+  accounts       Account[]
+  sessions       Session[]
+  assignedTasks  Task[]      @relation("TaskAssignee")
+  activityAsActor ActivityLog[] @relation("ActivityActor")
+
+  @@index([orgId, role])
+}
+
+model Job {
+  id              String     @id @default(cuid())
+  orgId           String
+  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  customerName    String
+  siteAddress     String
+  city            String
+  county          String
+  state           String
+  zip             String
+  utility         String?
+  systemSizeKw    Decimal?   @db.Decimal(10, 2)
+  status          JobStatus
+  startTargetDate DateTime?
+  installDate     DateTime?
+  notes           String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  permits      Permit[]
+  inspections  Inspection[]
+  tasks        Task[]
+  activityLogs ActivityLog[]
+
+  @@index([orgId, status])
+  @@index([orgId, updatedAt])
+}
+
+model Permit {
+  id               String       @id @default(cuid())
+  jobId            String
+  job              Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jurisdictionName String
+  permitNumber     String?
+  submittedAt      DateTime?
+  approvedAt       DateTime?
+  status           PermitStatus
+  lastContactAt    DateTime?
+  nextFollowUpAt   DateTime?
+  contactEmail     String?
+  contactPhone     String?
+  notes            String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([status, nextFollowUpAt])
+  @@index([jobId])
+}
+
+model Inspection {
+  id                String           @id @default(cuid())
+  jobId             String
+  job               Job              @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  type              InspectionType
+  scheduledFor      DateTime?
+  completedAt       DateTime?
+  outcome           InspectionOutcome @default(NA)
+  status            InspectionStatus
+  inspectorName     String?
+  jurisdictionPhone String?
+  notes             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([jobId, status])
+  @@index([scheduledFor])
+}
+
+model Task {
+  id               String         @id @default(cuid())
+  jobId            String
+  job              Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  title            String
+  dueAt            DateTime?
+  status           TaskStatus     @default(OPEN)
+  assignedToUserId String?
+  assignedToUser   User?          @relation("TaskAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  reminderPolicyId String?
+  reminderPolicy   ReminderPolicy? @relation(fields: [reminderPolicyId], references: [id], onDelete: SetNull)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([jobId, status])
+  @@index([dueAt])
+}
+
+model ReminderPolicy {
+  id          String              @id @default(cuid())
+  orgId       String
+  org         Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name        String
+  channel     ReminderChannel
+  triggerType ReminderTriggerType
+  offsetHours Int
+  enabled     Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  tasks Task[]
+  logs  ReminderLog[]
+
+  @@unique([orgId, name])
+  @@index([orgId, triggerType, enabled])
+}
+
+model ReminderLog {
+  id          String            @id @default(cuid())
+  orgId       String
+  org         Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  relatedType ReminderRelatedType
+  relatedId   String
+  channel     ReminderChannel
+  policyId    String?
+  policy      ReminderPolicy?   @relation(fields: [policyId], references: [id], onDelete: SetNull)
+  sentAt      DateTime          @default(now())
+  status      ReminderLogStatus
+  error       String?
+
+  @@index([orgId, relatedType, relatedId, sentAt])
+  @@index([policyId])
+}
+
+model ActivityLog {
+  id          String           @id @default(cuid())
+  orgId       String
+  org         Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  actorUserId String?
+  actor       User?            @relation("ActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  jobId       String?
+  job         Job?             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  entityType  ActivityEntityType
+  entityId    String
+  action      String
+  diff        Json
+  createdAt   DateTime         @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([entityType, entityId, createdAt])
+}
+
+model InviteToken {
+  id         String       @id @default(cuid())
+  orgId      String
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  email      String
+  role       UserRole
+  token      String       @unique
+  invitedBy  String
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime     @default(now())
+
+  @@index([orgId, email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
