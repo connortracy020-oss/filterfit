@@ -109,6 +109,7 @@ model Organization {
   jobs             Job[]
   reminderPolicies ReminderPolicy[]
   reminderLogs     ReminderLog[]
+  activityLogs     ActivityLog[]
   inviteTokens     InviteToken[]
 
   @@index([createdAt])

@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { authOptions } from "@/lib/auth/options";
 import { registerOrgAction } from "@/app/auth/actions";
 
+export const dynamic = "force-dynamic";
+
 export default async function RegisterPage() {
   const session = await getServerSession(authOptions);
   if (session?.user) {

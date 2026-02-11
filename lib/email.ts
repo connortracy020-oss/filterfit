@@ -39,7 +39,8 @@ export async function sendEmail(input: EmailInput) {
   });
 
   if (!env.SMTP_HOST) {
-    const raw = (info.message as Buffer).toString("utf8");
+    const preview = (info as unknown as { message?: string | Buffer }).message;
+    const raw = Buffer.isBuffer(preview) ? preview.toString("utf8") : preview ?? `messageId=${info.messageId}`;
     // Local fallback if SMTP is not configured.
     // eslint-disable-next-line no-console
     console.log(`\n[SolarOps Email Preview]\n${raw}\n`);

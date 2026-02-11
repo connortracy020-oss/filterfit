@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { inviteUserAction, updateUserRoleAction } from "@/app/settings/actions";
 
 const roleOptions = Object.values(UserRole) as UserRole[];
+export const dynamic = "force-dynamic";
 
 export default async function UsersSettingsPage() {
   const session = await requireSession();

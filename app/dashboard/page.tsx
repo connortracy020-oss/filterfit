@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { formatDate, formatDateTime } from "@/lib/format";
 
 const jobStatuses = Object.values(JobStatus) as JobStatus[];
+export const dynamic = "force-dynamic";
 
 interface DashboardSearchParams {
   status?: string;

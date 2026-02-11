@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { acceptInvite } from "@/lib/auth/invite";
 
+export const dynamic = "force-dynamic";
+
 export default async function InvitePage({ params }: { params: { token: string } }) {
   const invite = await prisma.inviteToken.findUnique({ where: { token: params.token } });
 

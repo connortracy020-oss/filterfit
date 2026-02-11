@@ -1,4 +1,4 @@
-import { ActivityEntityType } from "@prisma/client";
+import { ActivityEntityType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 interface AuditParams {
@@ -8,7 +8,7 @@ interface AuditParams {
   entityType: ActivityEntityType;
   entityId: string;
   action: string;
-  diff: Record<string, unknown>;
+  diff: Prisma.InputJsonValue;
 }
 
 export async function recordActivity(params: AuditParams) {

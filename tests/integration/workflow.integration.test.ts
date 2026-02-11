@@ -3,7 +3,7 @@ import { InspectionOutcome, InspectionStatus, InspectionType, JobStatus, PermitS
 import { createInspection, createJob, createPermit } from "@/lib/jobs/service";
 import { prisma } from "@/lib/prisma";
 
-const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeIfDb = process.env.RUN_INTEGRATION_TESTS === "true" ? describe : describe.skip;
 
 describeIfDb("workflow integration", () => {
   let orgId: string;

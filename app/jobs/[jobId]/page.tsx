@@ -42,6 +42,7 @@ const permitStatuses = Object.values(PermitStatus) as PermitStatus[];
 const inspectionTypes = Object.values(InspectionType) as InspectionType[];
 const inspectionStatuses = Object.values(InspectionStatus) as InspectionStatus[];
 const inspectionOutcomes = Object.values(InspectionOutcome) as InspectionOutcome[];
+export const dynamic = "force-dynamic";
 
 export default async function JobDetailPage({ params }: { params: { jobId: string } }) {
   const session = await requireSession();

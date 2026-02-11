@@ -7,6 +7,8 @@ import { requireSession } from "@/lib/auth/session";
 import { formatDateTime } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export default async function TodayPage() {
   const session = await requireSession();
   const now = new Date();

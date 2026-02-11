@@ -12,6 +12,7 @@ import { updateReminderPolicyAction } from "@/app/settings/actions";
 
 const channels = Object.values(ReminderChannel) as ReminderChannel[];
 const triggerTypes = Object.values(ReminderTriggerType) as ReminderTriggerType[];
+export const dynamic = "force-dynamic";
 
 export default async function ReminderSettingsPage() {
   const session = await requireSession();

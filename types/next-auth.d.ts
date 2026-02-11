@@ -13,8 +13,8 @@ declare module "next-auth" {
   }
 
   interface User {
-    orgId: string;
-    role: UserRole;
+    orgId?: string;
+    role?: UserRole;
   }
 }
 

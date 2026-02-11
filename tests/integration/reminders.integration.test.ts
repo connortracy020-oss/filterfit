@@ -4,7 +4,7 @@ import { addHours } from "date-fns";
 import { runReminderCycle } from "@/lib/reminders/service";
 import { prisma } from "@/lib/prisma";
 
-const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeIfDb = process.env.RUN_INTEGRATION_TESTS === "true" ? describe : describe.skip;
 
 describeIfDb("reminder worker integration", () => {
   let orgId: string;
