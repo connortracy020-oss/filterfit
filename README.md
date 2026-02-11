@@ -105,7 +105,7 @@ Seed includes:
 
 ## Auth and RBAC
 - Credentials login via NextAuth
-- First org can be created from `/auth/register` (first user is `ADMIN`)
+- Any visitor can create a new organization at `/auth/register` (new org owner becomes `ADMIN`)
 - Admin/Owner can invite users and set roles
 - Server actions enforce permissions; UI visibility mirrors server rules
 
@@ -126,6 +126,43 @@ Seed includes:
 - Prod: set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
 
 ## Deployment notes
+### Make it publicly available on the internet (Docker + HTTPS)
+Use this when you want anyone to access the app via your domain.
+
+1. Provision a Linux VM (2 vCPU / 4 GB RAM minimum) and point DNS `A` record for `APP_DOMAIN` to that VM IP.
+2. Install Docker + Docker Compose on the VM.
+3. Copy this repo to the VM and create production env:
+```bash
+cp .env.production.example .env.production
+```
+4. Fill `/Users/connortracy/Documents/New project/.env.production` with real values:
+- `APP_DOMAIN`
+- `NEXTAUTH_URL` (must be `https://<your-domain>`)
+- `ACME_EMAIL`
+- `NEXTAUTH_SECRET`
+- `CRON_SECRET`
+- `POSTGRES_PASSWORD`
+- SMTP variables
+5. Start production stack:
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+```
+6. Verify health:
+```bash
+curl https://<your-domain>/api/health
+```
+7. Add reminder cron on the VM (every 10 minutes):
+```bash
+crontab -e
+```
+Use line from `/Users/connortracy/Documents/New project/deploy/reminder-cron.example` with your real domain/secret.
+
+Deployment files added:
+- `/Users/connortracy/Documents/New project/Dockerfile`
+- `/Users/connortracy/Documents/New project/docker-compose.prod.yml`
+- `/Users/connortracy/Documents/New project/deploy/Caddyfile`
+- `/Users/connortracy/Documents/New project/.env.production.example`
+
 ### Option A: Vercel + managed Postgres
 1. Provision a Postgres database.
 2. Set env vars from `.env.example` in Vercel.
@@ -147,4 +184,3 @@ Seed includes:
 - Audit logs for key status changes: implemented
 - Validation + org-boundary checks + empty states: implemented
 - Unit/integration/e2e tests scaffolded for required cases: implemented
-
