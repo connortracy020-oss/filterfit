@@ -14,4 +14,13 @@ const envSchema = z.object({
   SMS_ENABLED: z.string().optional()
 });
 
-export const env = envSchema.parse(process.env);
+const parsedEnv = envSchema.safeParse(process.env);
+
+if (!parsedEnv.success) {
+  const issues = parsedEnv.error.issues
+    .map((issue) => `${issue.path.join(".") || "env"}: ${issue.message}`)
+    .join("; ");
+  throw new Error(`Invalid environment configuration: ${issues}`);
+}
+
+export const env = parsedEnv.data;
