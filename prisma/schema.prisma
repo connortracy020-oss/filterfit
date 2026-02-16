@@ -7,287 +7,311 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum UserRole {
-  OWNER
+enum MembershipRole {
   ADMIN
-  COORDINATOR
-  CREW
+  STAFF
   VIEWER
 }
 
-enum JobStatus {
-  LEAD
-  CONTRACTED
-  SITE_SURVEY
-  PERMIT_SUBMITTED
-  PERMIT_APPROVED
-  INSTALL_SCHEDULED
-  INSTALLED
-  INSPECTION_SCHEDULED
-  PASSED
-  PTO_REQUESTED
-  PTO_GRANTED
-  ON_HOLD
-  CANCELLED
+enum SubscriptionPlan {
+  STARTER
+  PRO
+  BUSINESS
 }
 
-enum PermitStatus {
-  NOT_STARTED
-  DRAFT
+enum CaseStatus {
+  NEW
+  NEEDS_INFO
+  READY_TO_SUBMIT
   SUBMITTED
-  IN_REVIEW
   APPROVED
-  REJECTED
-  REVISION_REQUIRED
+  DENIED
+  CREDIT_RECEIVED
+  CLOSED
 }
 
-enum InspectionType {
-  ROUGH_ELECTRICAL
-  FINAL_ELECTRICAL
-  BUILDING
-  UTILITY_METER
+enum EvidenceType {
+  RECEIPT
+  PHOTO
+  INVOICE
   OTHER
 }
 
-enum InspectionOutcome {
-  PASS
-  FAIL
-  PARTIAL
-  NA
+enum CaseEventType {
+  CASE_CREATED
+  CASE_UPDATED
+  STATUS_CHANGED
+  EVIDENCE_UPLOADED
+  TEMPLATE_APPLIED
+  TEMPLATE_UPDATED
+  IMPORT_CREATED
+  IMPORT_COMPLETED
+  NOTE_ADDED
 }
 
-enum InspectionStatus {
-  NOT_SCHEDULED
-  SCHEDULED
+enum ImportJobStatus {
+  PENDING
+  READY
+  PROCESSING
   COMPLETED
-  RESCHEDULE_NEEDED
-}
-
-enum TaskStatus {
-  OPEN
-  DONE
-}
-
-enum ReminderChannel {
-  EMAIL
-  SMS
-  IN_APP
-}
-
-enum ReminderTriggerType {
-  PERMIT_FOLLOWUP
-  INSPECTION_UPCOMING
-  TASK_DUE
-}
-
-enum ReminderRelatedType {
-  PERMIT
-  INSPECTION
-  TASK
-}
-
-enum ReminderLogStatus {
-  SENT
   FAILED
-  SKIPPED
 }
 
-enum ActivityEntityType {
-  JOB
-  PERMIT
-  INSPECTION
-  TASK
-  USER
-  REMINDER_POLICY
+enum ImportDedupeMode {
+  SKIP
+  UPDATE
 }
 
-model Organization {
-  id               String           @id @default(cuid())
-  name             String
-  createdAt        DateTime         @default(now())
-  users            User[]
-  jobs             Job[]
-  reminderPolicies ReminderPolicy[]
-  reminderLogs     ReminderLog[]
-  activityLogs     ActivityLog[]
-  inviteTokens     InviteToken[]
+model User {
+  id            String       @id @default(cuid())
+  name          String?
+  email         String       @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  memberships      Membership[]
+  accounts         Account[]
+  sessions         Session[]
+  evidenceUploads  EvidenceFile[]   @relation("EvidenceUploadedBy")
+  caseEvents       CaseEvent[]      @relation("CaseEventActor")
+  assignedCases    Case[]           @relation("CaseAssignee")
+  completedSteps   CaseChecklistItem[] @relation("ChecklistCompletedBy")
+  importJobs       ImportJob[]      @relation("ImportCreatedBy")
 
   @@index([createdAt])
 }
 
-model User {
-  id            String      @id @default(cuid())
-  orgId         String
-  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  name          String
-  email         String      @unique
-  passwordHash  String
-  role          UserRole
-  createdAt     DateTime    @default(now())
-  emailVerified DateTime?
-  image         String?
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  timezone  String   @default("America/New_York")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  accounts       Account[]
-  sessions       Session[]
-  assignedTasks  Task[]      @relation("TaskAssignee")
-  activityAsActor ActivityLog[] @relation("ActivityActor")
+  memberships    Membership[]
+  subscription   Subscription?
+  vendors        Vendor[]
+  templates      VendorTemplate[]
+  cases          Case[]
+  checklistItems CaseChecklistItem[]
+  evidenceFiles  EvidenceFile[]
+  caseEvents     CaseEvent[]
+  importJobs     ImportJob[]
 
+  @@index([createdAt])
+}
+
+model Membership {
+  id        String         @id @default(cuid())
+  userId    String
+  orgId     String
+  role      MembershipRole
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orgId])
   @@index([orgId, role])
 }
 
-model Job {
-  id              String     @id @default(cuid())
-  orgId           String
-  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  customerName    String
-  siteAddress     String
-  city            String
-  county          String
-  state           String
-  zip             String
-  utility         String?
-  systemSizeKw    Decimal?   @db.Decimal(10, 2)
-  status          JobStatus
-  startTargetDate DateTime?
-  installDate     DateTime?
-  notes           String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+model Subscription {
+  id                   String           @id @default(cuid())
+  orgId                String           @unique
+  stripeCustomerId     String?          @unique
+  stripeSubscriptionId String?          @unique
+  status               String           @default("incomplete")
+  plan                 SubscriptionPlan @default(STARTER)
+  currentPeriodEnd     DateTime?
+  trialEndsAt          DateTime?
+  cancelAtPeriodEnd    Boolean          @default(false)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
 
-  permits      Permit[]
-  inspections  Inspection[]
-  tasks        Task[]
-  activityLogs ActivityLog[]
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  @@index([orgId, status])
-  @@index([orgId, updatedAt])
+  @@index([status, plan])
 }
 
-model Permit {
-  id               String       @id @default(cuid())
-  jobId            String
-  job              Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  jurisdictionName String
-  permitNumber     String?
-  submittedAt      DateTime?
-  approvedAt       DateTime?
-  status           PermitStatus
-  lastContactAt    DateTime?
-  nextFollowUpAt   DateTime?
-  contactEmail     String?
-  contactPhone     String?
-  notes            String?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+model Vendor {
+  id           String   @id @default(cuid())
+  orgId        String
+  name         String
+  contactEmail String?
+  portalUrl    String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  @@index([status, nextFollowUpAt])
-  @@index([jobId])
-}
-
-model Inspection {
-  id                String           @id @default(cuid())
-  jobId             String
-  job               Job              @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  type              InspectionType
-  scheduledFor      DateTime?
-  completedAt       DateTime?
-  outcome           InspectionOutcome @default(NA)
-  status            InspectionStatus
-  inspectorName     String?
-  jurisdictionPhone String?
-  notes             String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-
-  @@index([jobId, status])
-  @@index([scheduledFor])
-}
-
-model Task {
-  id               String         @id @default(cuid())
-  jobId            String
-  job              Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  title            String
-  dueAt            DateTime?
-  status           TaskStatus     @default(OPEN)
-  assignedToUserId String?
-  assignedToUser   User?          @relation("TaskAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
-  reminderPolicyId String?
-  reminderPolicy   ReminderPolicy? @relation(fields: [reminderPolicyId], references: [id], onDelete: SetNull)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-
-  @@index([jobId, status])
-  @@index([dueAt])
-}
-
-model ReminderPolicy {
-  id          String              @id @default(cuid())
-  orgId       String
-  org         Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  name        String
-  channel     ReminderChannel
-  triggerType ReminderTriggerType
-  offsetHours Int
-  enabled     Boolean             @default(true)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-
-  tasks Task[]
-  logs  ReminderLog[]
+  org       Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  templates VendorTemplate[]
+  cases     Case[]
 
   @@unique([orgId, name])
-  @@index([orgId, triggerType, enabled])
+  @@index([orgId])
 }
 
-model ReminderLog {
-  id          String            @id @default(cuid())
-  orgId       String
-  org         Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  relatedType ReminderRelatedType
-  relatedId   String
-  channel     ReminderChannel
-  policyId    String?
-  policy      ReminderPolicy?   @relation(fields: [policyId], references: [id], onDelete: SetNull)
-  sentAt      DateTime          @default(now())
-  status      ReminderLogStatus
-  error       String?
+model VendorTemplate {
+  id             String   @id @default(cuid())
+  orgId          String
+  vendorId       String
+  name           String
+  steps          Json
+  requiredFields Json
+  slaDays        Int      @default(14)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  @@index([orgId, relatedType, relatedId, sentAt])
-  @@index([policyId])
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  vendor Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  cases  Case[]
+
+  @@index([orgId, vendorId])
 }
 
-model ActivityLog {
-  id          String           @id @default(cuid())
-  orgId       String
-  org         Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  actorUserId String?
-  actor       User?            @relation("ActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
-  jobId       String?
-  job         Job?             @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  entityType  ActivityEntityType
-  entityId    String
-  action      String
-  diff        Json
-  createdAt   DateTime         @default(now())
+model Case {
+  id                   String     @id @default(cuid())
+  orgId                String
+  vendorId             String
+  templateId           String?
+  assignedToUserId     String?
+  status               CaseStatus @default(NEW)
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+  dueDate              DateTime?
+  purchaseDate         DateTime?
+  returnDate           DateTime?
+  receiptId            String?
+  sku                  String?
+  upc                  String?
+  brand                String?
+  model                String?
+  serialNumber         String?
+  qty                  Int        @default(1)
+  unitCost             Decimal?   @db.Decimal(10, 2)
+  expectedCredit       Decimal?   @db.Decimal(10, 2)
+  actualCredit         Decimal?   @db.Decimal(10, 2)
+  customerReturnReason String?
+  internalNotes        String?
 
-  @@index([orgId, createdAt])
-  @@index([entityType, entityId, createdAt])
+  org           Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  vendor        Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  template      VendorTemplate?    @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  assignedTo    User?              @relation("CaseAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  evidenceFiles EvidenceFile[]
+  events        CaseEvent[]
+  checklist     CaseChecklistItem[]
+  importRows    ImportRow[]
+
+  @@index([orgId, status])
+  @@index([orgId, dueDate])
+  @@index([orgId, vendorId])
+  @@unique([orgId, receiptId, sku, returnDate])
+  @@map("cases")
 }
 
-model InviteToken {
-  id         String       @id @default(cuid())
-  orgId      String
+model CaseChecklistItem {
+  id                String   @id @default(cuid())
+  orgId             String
+  caseId            String
+  stepId            String
+  title             String
+  description       String?
+  required          Boolean  @default(true)
+  fieldsNeeded      Json
+  defaultDueDays    Int?
+  completedAt       DateTime?
+  completedByUserId String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  case        Case         @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  completedBy User?        @relation("ChecklistCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([caseId, stepId])
+  @@index([orgId, caseId])
+}
+
+model EvidenceFile {
+  id               String       @id @default(cuid())
+  orgId            String
+  caseId           String
+  type             EvidenceType
+  filename         String
+  url              String
+  mimeType         String
+  size             Int
+  uploadedByUserId String
+  createdAt        DateTime     @default(now())
+
   org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  email      String
-  role       UserRole
-  token      String       @unique
-  invitedBy  String
-  expiresAt  DateTime
-  acceptedAt DateTime?
-  createdAt  DateTime     @default(now())
+  case       Case         @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  uploadedBy User         @relation("EvidenceUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
 
-  @@index([orgId, email])
+  @@index([orgId, caseId])
+}
+
+model CaseEvent {
+  id          String        @id @default(cuid())
+  orgId       String
+  caseId      String
+  type        CaseEventType
+  message     String
+  metadata    Json?
+  createdAt   DateTime      @default(now())
+  actorUserId String?
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  case  Case         @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  actor User?        @relation("CaseEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, caseId, createdAt])
+}
+
+model ImportJob {
+  id               String          @id @default(cuid())
+  orgId            String
+  status           ImportJobStatus @default(PENDING)
+  originalFilename String
+  mapping          Json?
+  dedupeMode       ImportDedupeMode @default(SKIP)
+  previewRows      Json?
+  createdByUserId  String?
+  createdAt        DateTime        @default(now())
+  completedAt      DateTime?
+  error            String?
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("ImportCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  rows      ImportRow[]
+
+  @@index([orgId, status, createdAt])
+}
+
+model ImportRow {
+  id         String   @id @default(cuid())
+  importJobId String
+  raw        Json
+  parsed     Json?
+  linkedCaseId String?
+  action     String?
+  error      String?
+  createdAt  DateTime @default(now())
+
+  importJob ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  linkedCase Case?    @relation(fields: [linkedCaseId], references: [id], onDelete: SetNull)
+
+  @@index([importJobId])
+}
+
+model StripeEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
 }
 
 model Account {

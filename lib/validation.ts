@@ -1,83 +1,109 @@
-import { InspectionOutcome, InspectionStatus, InspectionType, JobStatus, PermitStatus, ReminderChannel, ReminderTriggerType, TaskStatus, UserRole } from "@prisma/client";
+import { CaseStatus, EvidenceType, ImportDedupeMode, MembershipRole, SubscriptionPlan } from "@prisma/client";
 import { z } from "zod";
 
-export const registerOrgSchema = z.object({
-  orgName: z.string().min(2).max(120),
-  name: z.string().min(2).max(120),
-  email: z.string().email(),
-  password: z.string().min(8).max(128)
+const numericString = z
+  .string()
+  .trim()
+  .optional()
+  .transform((value) => {
+    if (!value) {
+      return null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  });
+
+const nullableString = z
+  .string()
+  .trim()
+  .optional()
+  .transform((value) => value || null);
+
+export const orgSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  timezone: z.string().trim().min(2).max(100)
 });
 
-export const inviteUserSchema = z.object({
-  email: z.string().email(),
-  role: z.nativeEnum(UserRole)
+export const vendorSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  contactEmail: z.string().trim().email().optional().or(z.literal("")),
+  portalUrl: z.string().trim().url().optional().or(z.literal("")),
+  notes: z.string().trim().optional().or(z.literal(""))
 });
 
-export const acceptInviteSchema = z.object({
-  token: z.string().min(10),
-  name: z.string().min(2).max(120),
-  password: z.string().min(8).max(128)
+export const createCaseSchema = z.object({
+  vendorId: z.string().min(1),
+  templateId: nullableString,
+  purchaseDate: nullableString,
+  returnDate: nullableString,
+  receiptId: nullableString,
+  sku: nullableString,
+  upc: nullableString,
+  brand: nullableString,
+  model: nullableString,
+  serialNumber: nullableString,
+  qty: z.coerce.number().int().min(1).default(1),
+  unitCost: numericString,
+  expectedCredit: numericString,
+  customerReturnReason: nullableString,
+  internalNotes: nullableString
 });
 
-export const updateUserRoleSchema = z.object({
-  userId: z.string().cuid(),
-  role: z.nativeEnum(UserRole)
+export const updateCaseSchema = createCaseSchema.extend({
+  caseId: z.string().min(1),
+  status: z.nativeEnum(CaseStatus).optional(),
+  actualCredit: numericString
 });
 
-export const jobSchema = z.object({
-  customerName: z.string().min(1).max(140),
-  siteAddress: z.string().min(1).max(200),
-  city: z.string().min(1).max(120),
-  county: z.string().min(1).max(120),
-  state: z.string().min(2).max(2),
-  zip: z.string().min(5).max(10),
-  utility: z.string().max(120).optional().or(z.literal("")),
-  systemSizeKw: z.coerce.number().positive().optional(),
-  status: z.nativeEnum(JobStatus),
-  startTargetDate: z.coerce.date().optional(),
-  installDate: z.coerce.date().optional(),
-  notes: z.string().max(4000).optional().or(z.literal(""))
+export const statusUpdateSchema = z.object({
+  caseId: z.string().min(1),
+  status: z.nativeEnum(CaseStatus)
 });
 
-export const permitSchema = z.object({
-  jobId: z.string().cuid(),
-  jurisdictionName: z.string().min(1).max(140),
-  permitNumber: z.string().max(120).optional().or(z.literal("")),
-  submittedAt: z.coerce.date().optional(),
-  approvedAt: z.coerce.date().optional(),
-  status: z.nativeEnum(PermitStatus),
-  lastContactAt: z.coerce.date().optional(),
-  nextFollowUpAt: z.coerce.date().optional(),
-  contactEmail: z.string().email().optional().or(z.literal("")),
-  contactPhone: z.string().max(30).optional().or(z.literal("")),
-  notes: z.string().max(4000).optional().or(z.literal(""))
+export const checklistUpdateSchema = z.object({
+  caseId: z.string().min(1),
+  itemId: z.string().min(1),
+  completed: z.coerce.boolean()
 });
 
-export const inspectionSchema = z.object({
-  jobId: z.string().cuid(),
-  type: z.nativeEnum(InspectionType),
-  scheduledFor: z.coerce.date().optional(),
-  completedAt: z.coerce.date().optional(),
-  outcome: z.nativeEnum(InspectionOutcome).default(InspectionOutcome.NA),
-  status: z.nativeEnum(InspectionStatus),
-  inspectorName: z.string().max(120).optional().or(z.literal("")),
-  jurisdictionPhone: z.string().max(30).optional().or(z.literal("")),
-  notes: z.string().max(4000).optional().or(z.literal(""))
+export const evidencePresignSchema = z.object({
+  caseId: z.string().min(1),
+  filename: z.string().min(1).max(255),
+  mimeType: z.string().min(1).max(255),
+  size: z.number().int().positive().max(20 * 1024 * 1024),
+  type: z.nativeEnum(EvidenceType)
 });
 
-export const taskSchema = z.object({
-  jobId: z.string().cuid(),
-  title: z.string().min(1).max(200),
-  dueAt: z.coerce.date().optional(),
-  status: z.nativeEnum(TaskStatus).default(TaskStatus.OPEN),
-  assignedToUserId: z.string().cuid().optional(),
-  reminderPolicyId: z.string().cuid().optional()
+export const evidenceCompleteSchema = evidencePresignSchema.extend({
+  key: z.string().min(1)
 });
 
-export const reminderPolicySchema = z.object({
-  name: z.string().min(2).max(120),
-  channel: z.nativeEnum(ReminderChannel),
-  triggerType: z.nativeEnum(ReminderTriggerType),
-  offsetHours: z.coerce.number().int().min(0).max(336),
-  enabled: z.boolean().default(true)
+export const addMemberSchema = z.object({
+  email: z.string().trim().email(),
+  role: z.nativeEnum(MembershipRole)
+});
+
+export const checkoutSchema = z.object({
+  plan: z.nativeEnum(SubscriptionPlan),
+  interval: z.enum(["monthly", "annual"])
+});
+
+export const importMappingInputSchema = z.object({
+  importJobId: z.string().min(1),
+  dedupeMode: z.nativeEnum(ImportDedupeMode),
+  sku: z.string().optional(),
+  description: z.string().optional(),
+  returnReason: z.string().optional(),
+  unitCost: z.string().optional(),
+  qty: z.string().optional(),
+  vendor: z.string().optional(),
+  brand: z.string().optional(),
+  returnDate: z.string().optional(),
+  receiptId: z.string().optional(),
+  serialNumber: z.string().optional(),
+  expectedCredit: z.string().optional()
+});
+
+export const importConfirmSchema = z.object({
+  importJobId: z.string().min(1)
 });

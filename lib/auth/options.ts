@@ -1,80 +1,116 @@
 import { PrismaAdapter } from "@auth/prisma-adapter";
-import { UserRole } from "@prisma/client";
-import bcrypt from "bcryptjs";
-import { type NextAuthOptions } from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
-import { z } from "zod";
+import type { MembershipRole, SubscriptionPlan } from "@prisma/client";
+import { NextAuthOptions } from "next-auth";
+import EmailProvider from "next-auth/providers/email";
+import GoogleProvider from "next-auth/providers/google";
 import { env } from "@/lib/env";
+import { sendMagicLinkEmail } from "@/lib/email";
+import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 
-const credentialsSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8)
-});
+async function hydrateOrgContext(userId: string, preferredOrgId?: string | null) {
+  const membership = await prisma.membership.findFirst({
+    where: {
+      userId,
+      ...(preferredOrgId ? { orgId: preferredOrgId } : {})
+    },
+    orderBy: { createdAt: "asc" }
+  });
+
+  const resolvedMembership =
+    membership ??
+    (await prisma.membership.findFirst({
+      where: { userId },
+      orderBy: { createdAt: "asc" }
+    }));
+
+  if (!resolvedMembership) {
+    return {
+      orgId: undefined,
+      role: undefined,
+      subscriptionStatus: undefined,
+      plan: undefined
+    };
+  }
+
+  const subscription = await prisma.subscription.findUnique({
+    where: { orgId: resolvedMembership.orgId },
+    select: { status: true, plan: true }
+  });
+
+  return {
+    orgId: resolvedMembership.orgId,
+    role: resolvedMembership.role,
+    subscriptionStatus: subscription?.status,
+    plan: subscription?.plan
+  };
+}
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   secret: env.NEXTAUTH_SECRET,
   session: {
-    strategy: "database"
+    strategy: "jwt"
   },
   pages: {
-    signIn: "/auth/login"
+    signIn: "/login",
+    newUser: "/onboarding",
+    error: "/auth/error"
   },
   providers: [
-    CredentialsProvider({
-      name: "Credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" }
-      },
-      async authorize(credentials) {
-        const parsed = credentialsSchema.safeParse(credentials);
-        if (!parsed.success) {
-          return null;
-        }
-
-        const user = await prisma.user.findUnique({ where: { email: parsed.data.email.toLowerCase() } });
-        if (!user) {
-          return null;
-        }
-
-        const validPassword = await bcrypt.compare(parsed.data.password, user.passwordHash);
-        if (!validPassword) {
-          return null;
-        }
-
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          orgId: user.orgId
-        };
+    EmailProvider({
+      from: env.EMAIL_FROM,
+      sendVerificationRequest: async ({ identifier, url }) => {
+        await sendMagicLinkEmail({ email: identifier, url });
       }
-    })
+    }),
+    ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+      ? [
+          GoogleProvider({
+            clientId: env.GOOGLE_CLIENT_ID,
+            clientSecret: env.GOOGLE_CLIENT_SECRET,
+            allowDangerousEmailAccountLinking: false
+          })
+        ]
+      : [])
   ],
   callbacks: {
-    async session({ session, user }) {
-      if (session.user) {
-        const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
-        if (!dbUser) {
-          return session;
-        }
-        session.user.id = dbUser.id;
-        session.user.orgId = dbUser.orgId;
-        session.user.role = dbUser.role;
-        session.user.email = dbUser.email;
-        session.user.name = dbUser.name;
+    async signIn({ user }) {
+      if (!user.email) {
+        return false;
       }
-      return session;
+      return true;
     },
-    async jwt({ token, user }) {
-      if (user) {
-        token.role = (user as { role?: UserRole }).role;
-        token.orgId = (user as { orgId?: string }).orgId;
+    async jwt({ token, trigger, session }) {
+      if (!token.sub) {
+        return token;
       }
+
+      const preferredOrgId = trigger === "update" ? (session?.orgId as string | undefined) : (token.orgId as string | undefined);
+      const context = await hydrateOrgContext(token.sub, preferredOrgId);
+
+      token.orgId = context.orgId;
+      token.role = context.role as MembershipRole | undefined;
+      token.subscriptionStatus = context.subscriptionStatus;
+      token.plan = context.plan as SubscriptionPlan | undefined;
       return token;
+    },
+    async session({ session, token }) {
+      if (!session.user) {
+        return session;
+      }
+
+      session.user.id = token.sub ?? "";
+      session.user.orgId = (token.orgId as string | undefined) ?? null;
+      session.user.role = (token.role as MembershipRole | undefined) ?? null;
+      session.user.subscriptionStatus = (token.subscriptionStatus as string | undefined) ?? null;
+      session.user.plan = (token.plan as SubscriptionPlan | undefined) ?? null;
+      return session;
+    }
+  },
+  events: {
+    async signIn({ user }) {
+      logger.info("User signed in", { userId: user.id, email: user.email });
     }
   }
 };

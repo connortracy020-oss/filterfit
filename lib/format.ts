@@ -1,22 +1,22 @@
-import { format, formatDistanceToNowStrict } from "date-fns";
+import { CaseStatus } from "@prisma/client";
 
-export function formatDate(value?: Date | null) {
-  if (!value) {
-    return "-";
-  }
-  return format(value, "MMM d, yyyy");
+export function formatCaseStatus(status: CaseStatus) {
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((piece) => piece.charAt(0).toUpperCase() + piece.slice(1))
+    .join(" ");
 }
 
-export function formatDateTime(value?: Date | null) {
-  if (!value) {
-    return "-";
+export function decimalToNumber(value: { toNumber?: () => number } | number | null | undefined) {
+  if (value === null || value === undefined) {
+    return 0;
   }
-  return format(value, "MMM d, yyyy p");
-}
-
-export function fromNowDays(value?: Date | null) {
-  if (!value) {
-    return "-";
+  if (typeof value === "number") {
+    return value;
   }
-  return formatDistanceToNowStrict(value, { unit: "day" });
+  if (typeof value.toNumber === "function") {
+    return value.toNumber();
+  }
+  return Number(value) || 0;
 }

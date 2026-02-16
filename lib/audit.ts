@@ -1,26 +1,25 @@
-import { ActivityEntityType, Prisma } from "@prisma/client";
+import { CaseEventType } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
-interface AuditParams {
+interface CaseAuditInput {
   orgId: string;
-  actorUserId?: string;
-  jobId?: string;
-  entityType: ActivityEntityType;
-  entityId: string;
-  action: string;
-  diff: Prisma.InputJsonValue;
+  caseId: string;
+  actorUserId?: string | null;
+  type: CaseEventType;
+  message: string;
+  metadata?: Prisma.InputJsonValue;
 }
 
-export async function recordActivity(params: AuditParams) {
-  await prisma.activityLog.create({
+export async function logCaseEvent(input: CaseAuditInput) {
+  await prisma.caseEvent.create({
     data: {
-      orgId: params.orgId,
-      actorUserId: params.actorUserId,
-      jobId: params.jobId,
-      entityType: params.entityType,
-      entityId: params.entityId,
-      action: params.action,
-      diff: params.diff
+      orgId: input.orgId,
+      caseId: input.caseId,
+      actorUserId: input.actorUserId ?? null,
+      type: input.type,
+      message: input.message,
+      metadata: input.metadata
     }
   });
 }

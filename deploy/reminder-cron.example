@@ -1,2 +1,0 @@
-# Run this on your host with crontab -e (every 10 minutes)
-*/10 * * * * curl -sS -X POST "https://YOUR_DOMAIN/api/cron/reminders" -H "Authorization: Bearer YOUR_CRON_SECRET" >/dev/null 2>&1

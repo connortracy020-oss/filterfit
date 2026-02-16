@@ -1,186 +1,231 @@
-# SolarOps Lite
+# VendorCredit Radar
 
-Production-quality MVP web app for small (5-20 employee) solar installers to reduce delays in permit + inspection workflows.
+VendorCredit Radar is a multi-tenant SaaS web app for small retailers (hardware, auto parts, appliance parts) to recover money from vendor/manufacturer warranty credits and supplier RMAs.
 
 ## Stack
 - Next.js 14 App Router + TypeScript
-- PostgreSQL + Prisma ORM + SQL migrations
-- Auth.js / NextAuth (credentials)
-- TailwindCSS + shadcn-style UI components
-- Zod validation for all writes
-- Vitest (unit + integration) + Playwright (smoke e2e)
-- Docker Compose (Postgres + MailHog)
+- TailwindCSS + shadcn/ui-style components
+- PostgreSQL + Prisma ORM
+- Auth: NextAuth (email magic link + optional Google OAuth)
+- Billing: Stripe Checkout + Billing Portal + Webhooks
+- Storage: S3-compatible object storage (AWS S3 prod, MinIO local)
+- Email: Resend (SMTP/nodemailer fallback)
+- Background processing: cron-style import job polling + optional worker script
+- Testing: Vitest + Playwright
 
-## MVP scope
-### In scope
-- Multi-tenant organizations (users belong to exactly one org)
-- Roles: `OWNER`, `ADMIN`, `COORDINATOR`, `CREW`, `VIEWER`
-- RBAC enforced at server action level
-- Permit + inspection workflow dashboard and job detail
-- Permit follow-up tracking + stale permit indicators
-- Inspection scheduling and fail workflow (`RESCHEDULE_NEEDED` + auto correction task)
-- Reminder policies + reminder worker every 10 minutes (email first)
-- Reminder dedupe (no duplicate policy/item reminder within 24h)
-- Audit/activity log for job/permit/inspection changes
+## Core Features Implemented
+- Multi-tenant org model with role-based access (`ADMIN`, `STAFF`, `VIEWER`)
+- Subscription-gated app access (`active` / `trialing` only)
+- Stripe plans with trial (`trial_period_days=3`)
+- Cases workflow with status pipeline + required-field validation
+- Vendor template JSON checklist builder with step reordering
+- Evidence uploads through pre-signed URLs (no exposed storage secrets)
+- Claim Packet PDF generation (server-side)
+- CSV import wizard with preview/mapping/dedupe
+- Dashboard analytics + reports + CSV export
+- Audit trail (`CaseEvent`) for key actions
 
-### Out of scope
-- CRM pipeline beyond job workflow
-- Quote/proposal generation
-- Payments/invoicing
-- Full SMS pipeline (flag exists, MVP ships email)
+---
 
-## Project structure
-- `app/` - Next.js App Router pages + API routes + server actions
-- `components/` - UI primitives and layout components
-- `lib/` - auth, RBAC, workflow services, reminder engine, validation
-- `prisma/schema.prisma` - data model
-- `prisma/migrations/0001_init/migration.sql` - initial SQL migration
-- `prisma/seed.ts` - seed/demo data
-- `scripts/reminder-worker.ts` - 10-minute reminder worker
-- `tests/unit/` - unit tests
-- `tests/integration/` - integration tests
-- `tests/e2e/` - Playwright smoke test
-- `docker-compose.yml` - local Postgres + MailHog
+## Prerequisites
+- Node.js 20+
+- npm 10+
+- Docker + Docker Compose
+- Stripe account + Stripe CLI (for local webhooks)
 
-## Data model highlights
-Core entities implemented with constraints/indexes:
-- `Organization`, `User`, `Job`, `Permit`, `Inspection`, `Task`, `ReminderPolicy`, `ReminderLog`, `ActivityLog`
-- Auth tables: `Account`, `Session`, `VerificationToken`
-- Invite flow table: `InviteToken`
+## Local Setup
+### 1) Install dependencies
+```bash
+npm install
+```
 
-Required indexes included:
-- `Job(orgId, status)`
-- `Job(orgId, updatedAt)`
-- `Permit(status, nextFollowUpAt)`
-
-## Local development
-### 1) Start infrastructure
+### 2) Start local infrastructure (Postgres, Redis, MinIO)
 ```bash
 docker-compose up -d
 ```
 
-### 2) Install and configure
+### 3) Configure environment
 ```bash
-npm install
 cp .env.example .env.local
 ```
 
-### 3) Database
+Important:
+- `.env.local` is gitignored and must remain untracked.
+- Do not commit secrets.
+
+### 4) Run migrations and seed demo data
 ```bash
 npm run db:migrate
 npm run db:seed
 ```
 
-### 4) Run app
+### 5) Start the app
 ```bash
 npm run dev
 ```
 
-Optional: run app + reminder worker together
+Optional worker (import polling):
 ```bash
 npm run dev:all
 ```
 
-## Test commands
+---
+
+## Stripe Local Webhooks
+1. Ensure `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are set in `.env.local`.
+2. Start forwarding:
+```bash
+stripe listen --forward-to localhost:3000/api/stripe/webhook
+```
+3. Copy the generated signing secret into `STRIPE_WEBHOOK_SECRET`.
+
+Test events:
+```bash
+stripe trigger checkout.session.completed
+stripe trigger customer.subscription.updated
+stripe trigger invoice.paid
+stripe trigger invoice.payment_failed
+```
+
+---
+
+## Demo Seed Data
+`npm run db:seed` creates:
+- 1 demo org
+- 3 demo users (admin/staff/viewer)
+- 3 vendors + templates
+- 30 cases across all statuses
+- evidence placeholders
+- 1 completed import job
+
+Demo users:
+- `admin@vendorcredit.local`
+- `staff@vendorcredit.local`
+- `viewer@vendorcredit.local`
+
+Auth is passwordless magic link. In local mode, sent links are also written to:
+- `.tmp/magic-links/*.txt`
+
+---
+
+## Tests
+Run unit + integration tests:
 ```bash
 npm run test
+```
+
+Run e2e tests:
+```bash
 npm run e2e
 ```
 
-## Seeded demo credentials
-All seeded users use password: `Password123!`
+---
 
-- Admin: `admin@solarops.local`
-- Coordinator: `coord@solarops.local`
-- Crew: `crew@solarops.local`
-- Viewer: `viewer@solarops.local`
+## Deployment (Vercel + Managed Postgres + S3)
+### Recommended production architecture
+- Frontend/API: Vercel
+- Database: Neon or Supabase Postgres
+- Storage: AWS S3
+- Email: Resend (recommended)
+- Stripe: Checkout + Webhooks + Billing Portal
 
-Seed includes:
-- 1 org
-- 4 users (admin/coordinator/crew/viewer)
-- 12 jobs across statuses
-- stuck permits
-- 3 inspections scheduled this week
-- tasks due soon
-
-## Auth and RBAC
-- Credentials login via NextAuth
-- Any visitor can create a new organization at `/auth/register` (new org owner becomes `ADMIN`)
-- Admin/Owner can invite users and set roles
-- Server actions enforce permissions; UI visibility mirrors server rules
-
-## Reminders
-- Trigger types:
-  - `PERMIT_FOLLOWUP`
-  - `INSPECTION_UPCOMING`
-  - `TASK_DUE`
-- Channels:
-  - `EMAIL` fully implemented
-  - `SMS` optional flag only (`SMS_ENABLED`), not enabled in MVP
-- Deduped by org/item/channel/trigger in rolling 24-hour window
-- Every reminder attempt is logged in `ReminderLog` with `SENT`, `FAILED`, or `SKIPPED`
-
-### Email behavior
-- Dev: if SMTP vars are missing, email is printed to console
-- Local SMTP option: MailHog at `http://localhost:8025` (`SMTP_HOST=localhost`, `SMTP_PORT=1025`)
-- Prod: set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
-
-## Deployment notes
-### Make it publicly available on the internet (Docker + HTTPS)
-Use this when you want anyone to access the app via your domain.
-
-1. Provision a Linux VM (2 vCPU / 4 GB RAM minimum) and point DNS `A` record for `APP_DOMAIN` to that VM IP.
-2. Install Docker + Docker Compose on the VM.
-3. Copy this repo to the VM and create production env:
+### Deploy steps
+1. Provision Postgres and set `DATABASE_URL`.
+2. Provision S3 bucket and IAM credentials.
+3. Create Stripe products + monthly/annual price IDs for Starter/Pro/Business.
+4. Set all env vars in Vercel (see list below).
+5. Run migrations in deployment:
 ```bash
-cp .env.production.example .env.production
+npm run db:deploy
 ```
-4. Fill `/Users/connortracy/Documents/New project/.env.production` with real values:
-- `APP_DOMAIN`
-- `NEXTAUTH_URL` (must be `https://<your-domain>`)
-- `ACME_EMAIL`
+6. Configure Stripe webhook endpoint:
+- `https://<your-domain>/api/stripe/webhook`
+- Subscribe to:
+  - `checkout.session.completed`
+  - `customer.subscription.created`
+  - `customer.subscription.updated`
+  - `customer.subscription.deleted`
+  - `invoice.paid`
+  - `invoice.payment_failed`
+7. Configure scheduled trigger (Vercel Cron or external cron) for:
+- `POST /api/cron/imports`
+- Header: `Authorization: Bearer <CRON_SECRET>`
+
+---
+
+## Environment Variables
+Required/commonly used:
+- `NODE_ENV`
+- `APP_URL`
+- `NEXTAUTH_URL`
 - `NEXTAUTH_SECRET`
+- `DATABASE_URL`
+
+Auth/OAuth:
+- `GOOGLE_CLIENT_ID` (optional)
+- `GOOGLE_CLIENT_SECRET` (optional)
+
+Email:
+- `RESEND_API_KEY` (recommended)
+- `EMAIL_FROM`
+- `SMTP_HOST` (optional fallback)
+- `SMTP_PORT` (optional fallback)
+- `SMTP_USER` (optional fallback)
+- `SMTP_PASS` (optional fallback)
+
+Stripe:
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+- `STRIPE_STARTER_MONTHLY_PRICE_ID`
+- `STRIPE_STARTER_ANNUAL_PRICE_ID`
+- `STRIPE_PRO_MONTHLY_PRICE_ID`
+- `STRIPE_PRO_ANNUAL_PRICE_ID`
+- `STRIPE_BUSINESS_MONTHLY_PRICE_ID`
+- `STRIPE_BUSINESS_ANNUAL_PRICE_ID`
+
+Storage:
+- `S3_BUCKET`
+- `S3_REGION`
+- `S3_ENDPOINT` (blank for AWS S3)
+- `S3_ACCESS_KEY_ID`
+- `S3_SECRET_ACCESS_KEY`
+- `S3_FORCE_PATH_STYLE`
+
+Jobs/Cron:
 - `CRON_SECRET`
-- `POSTGRES_PASSWORD`
-- SMTP variables
-5. Start production stack:
-```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
-```
-6. Verify health:
-```bash
-curl https://<your-domain>/api/health
-```
-7. Add reminder cron on the VM (every 10 minutes):
-```bash
-crontab -e
-```
-Use line from `/Users/connortracy/Documents/New project/deploy/reminder-cron.example` with your real domain/secret.
+- `REDIS_URL` (optional, reserved)
+- `IMPORT_WORKER_INTERVAL_MS`
 
-Deployment files added:
-- `/Users/connortracy/Documents/New project/Dockerfile`
-- `/Users/connortracy/Documents/New project/docker-compose.prod.yml`
-- `/Users/connortracy/Documents/New project/deploy/Caddyfile`
-- `/Users/connortracy/Documents/New project/.env.production.example`
+Local-only toggles:
+- `ENABLE_BILLING_BYPASS`
+- `ALLOW_DEV_CREDENTIALS`
 
-### Option A: Vercel + managed Postgres
-1. Provision a Postgres database.
-2. Set env vars from `.env.example` in Vercel.
-3. Run migrations on deploy (`npm run db:deploy`).
-4. Configure a cron call to `POST /api/cron/reminders` every 10 minutes with `Authorization: Bearer $CRON_SECRET`.
+---
 
-### Option B: Container host
-1. Build Next.js app image.
-2. Run web service + worker process (or external cron hitting reminder endpoint).
-3. Run `npm run db:deploy` during release.
+## Go-live Checklist
+- Stripe products and all six price IDs created
+- Stripe webhook endpoint configured and validated
+- Production domain + SSL active
+- S3 bucket CORS configured for app domain
+- S3 IAM policy scoped to bucket path
+- Resend/email sending domain verified (SPF/DKIM)
+- `NEXTAUTH_SECRET` set to strong random value
+- `CRON_SECRET` configured and cron job active
+- `ENABLE_BILLING_BYPASS=false`
+- Migrations applied with `npm run db:deploy`
 
-## Product checklist mapping
-- Auth + org setup/invite/roles: implemented
-- Dashboard bottlenecks + filters + sorting + days stuck: implemented
-- Job detail tabs (overview/permits/inspections/tasks/activity): implemented
-- Permit quick actions + stale indicator: implemented
-- Inspection FAIL automation: implemented
-- Reminder scheduler + dedupe + logs: implemented
-- Audit logs for key status changes: implemented
-- Validation + org-boundary checks + empty states: implemented
-- Unit/integration/e2e tests scaffolded for required cases: implemented
+---
+
+## API Endpoints (key)
+- `POST /api/stripe/checkout`
+- `POST /api/stripe/portal`
+- `POST /api/stripe/webhook`
+- `POST /api/storage/presign`
+- `POST /api/storage/complete`
+- `GET /api/cases/:id/packet`
+- `GET /api/reports/cases.csv`
+- `POST /api/cron/imports`
+- `GET /api/import/template`
+
+See `Architecture.md` for tenancy, billing, and storage details.

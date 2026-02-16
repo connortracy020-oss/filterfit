@@ -8,7 +8,7 @@ export function SignOutButton() {
     <Button
       variant="outline"
       onClick={() => {
-        void signOut({ callbackUrl: "/auth/login" });
+        void signOut({ callbackUrl: "/" });
       }}
     >
       Sign out
